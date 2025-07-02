@@ -1,3 +1,5 @@
+alembic
+asyncpg
 email-validator
 fastapi
 pydantic-settings
