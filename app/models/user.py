@@ -23,4 +23,4 @@ class User(Base):
     avatar = Column(String, nullable=True)
     role = Column(Enum(Role), default=Role.user, nullable=False)
 
-    contacts = relationship("Contact", back_populates="owner", cascade="all, delete")
+    # contacts = relationship("Contact", back_populates="owner", cascade="all, delete")
