@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi_limiter import FastAPILimiter
 
-from app.routers import auth, users
+from app.routers import auth, contacts, users
 
 app = FastAPI()
 
@@ -37,3 +37,4 @@ def read_root():
 
 app.include_router(users.router, prefix="/api")
 app.include_router(auth.router, prefix="/api")
+app.include_router(contacts.router, prefix="/api")
