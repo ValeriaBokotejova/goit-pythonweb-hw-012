@@ -13,6 +13,7 @@ from app.services.contacts import (
     get_contact_by_id,
     get_contacts,
     get_upcoming_birthdays,
+    search_contacts,
     update_contact,
 )
 
@@ -36,6 +37,15 @@ async def list_contacts(
     current_user: User = Depends(get_current_user),
 ):
     return await get_contacts(skip, limit, db, current_user)
+
+
+@router.get("/search", response_model=List[ContactRead])
+async def search_contacts_view(
+    query: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await search_contacts(query, db, current_user)
 
 
 @router.get("/upcoming/birthdays", response_model=List[ContactRead])

@@ -83,3 +83,21 @@ async def get_upcoming_birthdays(db: AsyncSession, user: User) -> List[Contact]:
     ]
 
     return upcoming_birthdays
+
+
+async def search_contacts(
+    query: str,
+    db: AsyncSession,
+    user: User,
+) -> List[Contact]:
+    """Search contacts by first name, last name, or email."""
+    stmt = select(Contact).filter(
+        Contact.user_id == user.id,
+        or_(
+            Contact.first_name.ilike(f"%{query}%"),
+            Contact.last_name.ilike(f"%{query}%"),
+            Contact.email.ilike(f"%{query}%"),
+        ),
+    )
+    result = await db.execute(stmt)
+    return result.scalars().all()
