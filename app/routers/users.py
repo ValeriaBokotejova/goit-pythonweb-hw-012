@@ -4,8 +4,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.deps import get_db
 from app.models.user import User
 from app.schemas.user import AvatarUpdate, UserRead
-from app.services.auth import get_current_user
 from app.services.avatar import upload_avatar_to_cloudinary
+from app.services.oauth2 import get_current_user
 from app.services.rate_limit import rate_limiter
 from app.services.users import update_avatar
 

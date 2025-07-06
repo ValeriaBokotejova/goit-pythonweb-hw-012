@@ -6,7 +6,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.deps import get_db
 from app.models.user import User
 from app.schemas.contact import ContactCreate, ContactRead, ContactUpdate
-from app.services.auth import get_current_user
 from app.services.contacts import (
     create_contact,
     delete_contact,
@@ -16,6 +15,7 @@ from app.services.contacts import (
     search_contacts,
     update_contact,
 )
+from app.services.oauth2 import get_current_user
 
 router = APIRouter(prefix="/contacts", tags=["Contacts"])
 

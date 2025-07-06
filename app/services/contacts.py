@@ -8,6 +8,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.contact import Contact
 from app.models.user import User
 from app.schemas.contact import ContactCreate, ContactUpdate
+from app.services.cache import (
+    cache_birthdays,
+    cache_contacts,
+    cache_search_results,
+    get_cached_birthdays,
+    get_cached_contacts,
+    get_cached_search_results,
+    invalidate_contacts_cache,
+)
 
 
 async def get_contacts(
@@ -16,9 +25,20 @@ async def get_contacts(
     db: AsyncSession,
     user: User,
 ) -> List[Contact]:
+    cached = await get_cached_contacts(user.id)
+    if cached:
+        return [Contact(**c) for c in cached]
+
     stmt = select(Contact).filter(Contact.user_id == user.id).offset(skip).limit(limit)
     result = await db.execute(stmt)
-    return result.scalars().all()
+    contacts = result.scalars().all()
+
+    serialized = [c.__dict__ for c in contacts]
+    for item in serialized:
+        item.pop("_sa_instance_state", None)
+    await cache_contacts(user.id, serialized)
+
+    return contacts
 
 
 async def get_contact_by_id(contact_id: int, db: AsyncSession, user: User) -> Contact:
@@ -44,6 +64,8 @@ async def create_contact(
     db.add(new_contact)
     await db.commit()
     await db.refresh(new_contact)
+
+    await invalidate_contacts_cache(user.id)
     return new_contact
 
 
@@ -58,6 +80,8 @@ async def update_contact(
         setattr(contact, field, value)
     await db.commit()
     await db.refresh(contact)
+
+    await invalidate_contacts_cache(user.id)
     return contact
 
 
@@ -66,8 +90,14 @@ async def delete_contact(contact_id: int, db: AsyncSession, user: User):
     await db.delete(contact)
     await db.commit()
 
+    await invalidate_contacts_cache(user.id)
+
 
 async def get_upcoming_birthdays(db: AsyncSession, user: User) -> List[Contact]:
+    cached = await get_cached_birthdays(user.id)
+    if cached:
+        return [Contact(**c) for c in cached]
+
     today = date.today()
     next_week = today + timedelta(days=7)
 
@@ -82,6 +112,11 @@ async def get_upcoming_birthdays(db: AsyncSession, user: User) -> List[Contact]:
         and today <= contact.birthday.replace(year=today.year) <= next_week
     ]
 
+    serialized = [c.__dict__ for c in upcoming_birthdays]
+    for item in serialized:
+        item.pop("_sa_instance_state", None)
+    await cache_birthdays(user.id, serialized)
+
     return upcoming_birthdays
 
 
@@ -90,7 +125,10 @@ async def search_contacts(
     db: AsyncSession,
     user: User,
 ) -> List[Contact]:
-    """Search contacts by first name, last name, or email."""
+    cached = await get_cached_search_results(user.id, query)
+    if cached:
+        return [Contact(**c) for c in cached]
+
     stmt = select(Contact).filter(
         Contact.user_id == user.id,
         or_(
@@ -100,4 +138,11 @@ async def search_contacts(
         ),
     )
     result = await db.execute(stmt)
-    return result.scalars().all()
+    contacts = result.scalars().all()
+
+    serialized = [c.__dict__ for c in contacts]
+    for item in serialized:
+        item.pop("_sa_instance_state", None)
+    await cache_search_results(user.id, query, serialized)
+
+    return contacts

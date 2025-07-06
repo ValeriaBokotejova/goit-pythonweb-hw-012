@@ -1,16 +1,17 @@
-from pydantic import EmailStr
+from pydantic import EmailStr, Field
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
     # Database
-    database_url: str
+    database_url: str = Field(..., alias="DATABASE_URL")
 
     # JWT config
     secret_key: str
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7
+    verify_token_expire_hours: int = 24
 
     # Redis
     redis_host: str = "localhost"
