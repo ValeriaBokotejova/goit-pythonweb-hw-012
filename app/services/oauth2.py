@@ -9,6 +9,7 @@ from sqlalchemy.future import select
 from app.core.config import settings
 from app.db.deps import get_db
 from app.models.user import User
+from app.roles import UserRole
 from app.services.tokens import verify_token
 
 logger = logging.getLogger(__name__)
@@ -53,3 +54,12 @@ async def get_current_user(
         )
 
     return user
+
+
+async def get_current_admin(current_user: User = Depends(get_current_user)):
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admin has access",
+        )
+    return current_user

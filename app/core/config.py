@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 7
     verify_token_expire_hours: int = 24
 
+    # Admin
+    admin_email: str
+    admin_password: str
+
     # Redis
     redis_host: str = "localhost"
     redis_port: int = 6379
