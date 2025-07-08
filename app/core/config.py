@@ -34,7 +34,9 @@ class Settings(BaseSettings):
     mail_port: int = 587
 
     # Frontend
-    frontend_base_url: str = "http://localhost:3000"
+    # frontend_base_url: str = "http://localhost:3000"
+    frontend_verify_url: str = "http://localhost:8000/api/auth/verify-email"
+    frontend_reset_url: str = "http://localhost:8000/api/auth/reset-password"
 
     # CORS
     allowed_origins: list[str] = ["*"]

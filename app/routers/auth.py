@@ -1,4 +1,5 @@
-from datetime import timedelta
+import logging
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -9,19 +10,28 @@ from sqlalchemy.future import select
 from app.core.config import settings
 from app.db.deps import get_db
 from app.models.user import User
-from app.schemas.auth import EmailRequest, LoginRequest, TokenResponse, UserCreate
+from app.schemas.auth import (
+    EmailRequest,
+    LoginRequest,
+    PasswordResetConfirm,
+    PasswordResetRequest,
+    TokenResponse,
+    UserCreate,
+)
 from app.services.auth import (
     create_access_token,
     create_refresh_token,
     create_verification_token,
+    hash_password,
     register_user,
     verify_email_token,
     verify_password,
 )
 from app.services.oauth2 import get_current_user
-from app.utils.email import send_verification_email
+from app.utils.email import send_password_reset_email, send_verification_email
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
+logger = logging.getLogger(__name__)
 
 
 @router.post(
@@ -174,3 +184,85 @@ async def refresh_token(request: Request):
 
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
+
+
+@router.post("/auth/password-reset-request")
+async def request_password_reset(
+    data: PasswordResetRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = select(User).where(User.email == data.email)
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+
+    if not user:
+        logger.warning(f"Password reset requested for non-existent email: {data.email}")
+        raise HTTPException(status_code=404, detail="User not found")
+
+    token_data = {
+        "sub": str(user.id),
+        "email": user.email,
+        "exp": datetime.utcnow() + timedelta(hours=1),
+    }
+
+    reset_token = jwt.encode(
+        token_data,
+        settings.secret_key,
+        algorithm=settings.algorithm,
+    )
+    send_password_reset_email(user.email, reset_token)
+
+    logger.info(f"Password reset link sent to: {data.email}")
+    return {"message": "Password reset link sent"}
+
+
+@router.post("/auth/password-reset")
+async def reset_password(
+    data: PasswordResetConfirm,
+    db: AsyncSession = Depends(get_db),
+):
+    if data.new_password != data.confirm_password:
+        raise HTTPException(status_code=400, detail="Passwords do not match")
+
+    try:
+        payload = jwt.decode(
+            data.token,
+            settings.secret_key,
+            algorithms=[settings.algorithm],
+        )
+        email_from_token = payload.get("email")
+        logger.info(f"Decoded token: email={email_from_token}")
+    except JWTError as e:
+        logger.error(f" Invalid token: {str(e)}")
+        raise HTTPException(status_code=400, detail="Invalid or expired token")
+
+    if email_from_token != data.email:
+        raise HTTPException(status_code=400, detail="Email does not match token")
+
+    stmt = select(User).where(User.email == data.email)
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+
+    if not user:
+        logger.error(f"Password reset failed: user not found ({data.email})")
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.password = hash_password(data.new_password)
+    await db.commit()
+
+    logger.info(f"Password reset successful for user: {user.email}")
+    return {"message": "Password changed successfully"}
+
+
+@router.get("/reset-password", response_class=HTMLResponse)
+async def show_reset_password_info(token: str):
+    return HTMLResponse(
+        content=f"""
+        <h2>Password Reset Link</h2>
+        <p>This is a backend-only app. To reset your password, send a POST request to:</p>
+        <pre>/api/auth/password-reset</pre>
+        <p>Include this token in your request:</p>
+        <code>{token}</code>
+        """,
+        status_code=200,
+    )
