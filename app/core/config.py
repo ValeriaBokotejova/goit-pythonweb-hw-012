@@ -1,3 +1,5 @@
+import os
+
 from pydantic import EmailStr, Field
 from pydantic_settings import BaseSettings
 
@@ -46,3 +48,6 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+if os.getenv("TESTING"):
+    settings.database_url = "sqlite+aiosqlite:///:memory:"

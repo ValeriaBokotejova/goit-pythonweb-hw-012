@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import HTTPException, status
 from passlib.context import CryptContext
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +12,8 @@ from app.models.user import User
 from app.schemas.auth import UserCreate
 from app.services.tokens import create_access_token, create_refresh_token, verify_token
 from app.utils.email import send_verification_email
+
+tmp_logger = logging.getLogger(__name__)
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 VERIFY_TOKEN_EXPIRE_HOURS = settings.verify_token_expire_hours
@@ -31,6 +35,7 @@ def create_verification_token(email: str) -> str:
 
 
 async def register_user(user_data: UserCreate, db: AsyncSession) -> dict:
+
     if await db.scalar(select(User).filter_by(email=user_data.email)):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -53,7 +58,10 @@ async def register_user(user_data: UserCreate, db: AsyncSession) -> dict:
     await db.refresh(new_user)
 
     token = create_verification_token(new_user.email)
-    send_verification_email(new_user.email, token)
+    try:
+        send_verification_email(new_user.email, token)
+    except Exception as e:
+        tmp_logger.warning(f"Failed to send verification email: {e}")
 
     return {
         "access_token": create_access_token({"sub": new_user.email}),

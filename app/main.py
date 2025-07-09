@@ -25,14 +25,17 @@ async def lifespan(app: FastAPI):
     await wait_for_db()
     logger.info("✅ Database is ready!")
 
-    redis_connection = redis.Redis(
-        host=settings.redis_host,
-        port=settings.redis_port,
-        db=settings.redis_db,
-        decode_responses=True,
-    )
-    await FastAPILimiter.init(redis_connection)
-    logger.info("✅ FastAPILimiter initialized")
+    try:
+        redis_connection = redis.Redis(
+            host=settings.redis_host,
+            port=settings.redis_port,
+            db=settings.redis_db,
+            decode_responses=True,
+        )
+        await FastAPILimiter.init(redis_connection)
+        logger.info("✅ FastAPILimiter initialized")
+    except Exception as e:
+        logger.warning(f"⚠️ Skipping rate‑limiter init (Redis not available?): {e}")
 
     async with async_session() as db:
         logger.info("⚙️ Checking admin user...")

@@ -37,3 +37,7 @@ async def create_admin(db: AsyncSession):
     await db.commit()
     await db.refresh(admin)
     logger.info(f"✅ Admin created successfully: {admin.email}")
+
+
+def is_admin_email(user: User) -> bool:
+    return user.role == UserRole.ADMIN.value
