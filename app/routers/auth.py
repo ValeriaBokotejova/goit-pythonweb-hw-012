@@ -41,7 +41,11 @@ logger = logging.getLogger(__name__)
 )
 async def signup(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
     """
-    Register a new user and send email verification link.
+    Register a new user.
+
+    1. Checks for existing email/username.
+    2. Creates user with `is_verified=False`.
+    3. Sends verification email.
     """
     return await register_user(user_data, db)
 
@@ -53,7 +57,8 @@ async def login(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Authenticate user and return access + refresh token in response and as cookies.
+    Authenticate a user with email+password.
+    - Sets both `access_token` and `refresh_token` in HttpOnly cookies.
     """
     user = await db.scalar(select(User).filter_by(email=user_data.email))
 
@@ -76,16 +81,16 @@ async def login(
     refresh_token = create_refresh_token({"sub": user.email})
 
     response.set_cookie(
-        key="access_token",
-        value=access_token,
+        "access_token",
+        access_token,
         httponly=True,
-        secure=False,  # change to True on production (HTTPS)
+        secure=False,
         samesite="lax",
         max_age=settings.access_token_expire_minutes * 60,
     )
     response.set_cookie(
-        key="refresh_token",
-        value=refresh_token,
+        "refresh_token",
+        refresh_token,
         httponly=True,
         secure=False,
         samesite="lax",
@@ -101,6 +106,9 @@ async def login(
 
 @router.post("/logout")
 async def logout(response: Response, user: User = Depends(get_current_user)):
+    """
+    Log out the current user by clearing their cookies.
+    """
     response.delete_cookie("access_token")
     response.delete_cookie("refresh_token")
     return {"msg": f"User {user.email} successfully logged out"}
@@ -109,19 +117,14 @@ async def logout(response: Response, user: User = Depends(get_current_user)):
 @router.get("/verify-email", response_class=HTMLResponse)
 async def verify_email(token: str, db: AsyncSession = Depends(get_db)):
     """
-    Verify user email via token from email link.
+    Verify a user’s email via token-link in their inbox.
+    Returns a simple HTML “success” or “failure” page.
     """
     try:
         await verify_email_token(token, db)
-        return HTMLResponse(
-            content="<h2>✅ Email verified successfully!</h2>",
-            status_code=200,
-        )
+        return HTMLResponse("<h2>✅ Email verified successfully!</h2>", status_code=200)
     except Exception as e:
-        return HTMLResponse(
-            content=f"<h2>❌ Verification failed:</h2><p>{str(e)}</p>",
-            status_code=400,
-        )
+        return HTMLResponse(f"<h2>❌ Verification failed:</h2><p>{e}</p>", 400)
 
 
 @router.post("/resend-verification")
@@ -130,7 +133,18 @@ async def resend_verification(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Resend verification email to unverified user.
+    Resend the email verification link to a user.
+
+    Args:
+        request (EmailRequest): Contains the user's email.
+        db (AsyncSession): Database session injected by FastAPI.
+
+    Raises:
+        HTTPException(404): If no user exists with that email.
+        HTTPException(400): If the user is already verified.
+
+    Returns:
+        dict: { "msg": "Verification email resent" }
     """
     user = await db.scalar(select(User).filter_by(email=request.email))
 
@@ -148,6 +162,18 @@ async def resend_verification(
 
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh_token(request: Request):
+    """
+    Refresh an access token using a valid refresh token cookie.
+
+    Args:
+        request (Request): FastAPI request (to read cookies).
+
+    Raises:
+        HTTPException(401): If the refresh token is missing or invalid.
+
+    Returns:
+        JSONResponse: New access_token (and same refresh_token) in body and cookie.
+    """
     refresh_token = request.cookies.get("refresh_token")
     if not refresh_token:
         raise HTTPException(status_code=401, detail="Refresh token missing")
@@ -171,7 +197,6 @@ async def refresh_token(request: Request):
                 "token_type": "bearer",
             },
         )
-
         response.set_cookie(
             key="access_token",
             value=new_access_token,
@@ -191,6 +216,19 @@ async def request_password_reset(
     data: PasswordResetRequest,
     db: AsyncSession = Depends(get_db),
 ):
+    """
+    Send a one‑hour password reset link to the given email.
+
+    Args:
+        data (PasswordResetRequest): Contains the user's email.
+        db (AsyncSession): Database session.
+
+    Raises:
+        HTTPException(404): If no user is found.
+
+    Returns:
+        dict: { "message": "Password reset link sent" }
+    """
     stmt = select(User).where(User.email == data.email)
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
@@ -204,7 +242,6 @@ async def request_password_reset(
         "email": user.email,
         "exp": datetime.utcnow() + timedelta(hours=1),
     }
-
     reset_token = jwt.encode(
         token_data,
         settings.secret_key,
@@ -221,6 +258,23 @@ async def reset_password(
     data: PasswordResetConfirm,
     db: AsyncSession = Depends(get_db),
 ):
+    """
+    Consume a password‑reset token and change the user's password.
+
+    Args:
+        data (PasswordResetConfirm):
+            - email: user’s email
+            - token: reset token from email
+            - new_password/confirm_password: new credentials
+        db (AsyncSession): Database session.
+
+    Raises:
+        HTTPException(400): If the passwords don’t match, token is invalid/expired, or email mismatch.
+        HTTPException(404): If user not found.
+
+    Returns:
+        dict: { "message": "Password changed successfully" }
+    """
     if data.new_password != data.confirm_password:
         raise HTTPException(status_code=400, detail="Passwords do not match")
 
@@ -233,7 +287,7 @@ async def reset_password(
         email_from_token = payload.get("email")
         logger.info(f"Decoded token: email={email_from_token}")
     except JWTError as e:
-        logger.error(f" Invalid token: {str(e)}")
+        logger.error(f"Invalid token: {e}")
         raise HTTPException(status_code=400, detail="Invalid or expired token")
 
     if email_from_token != data.email:
@@ -256,6 +310,15 @@ async def reset_password(
 
 @router.get("/reset-password", response_class=HTMLResponse)
 async def show_reset_password_info(token: str):
+    """
+    Informational endpoint for password‑reset tokens.
+
+    Args:
+        token (str): The reset token.
+
+    Returns:
+        HTMLResponse: Shows where/how to POST the token in a curl or browser.
+    """
     return HTMLResponse(
         content=f"""
         <h2>Password Reset Link</h2>

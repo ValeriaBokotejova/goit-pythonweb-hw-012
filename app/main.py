@@ -13,14 +13,18 @@ from app.middleware.cors import setup_cors
 from app.routers import auth, contacts, users
 from app.services.admin import create_admin
 
-# ────────────────────────────── Logging ────────────────────────────── #
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-# ────────────────────────────── Lifespan ────────────────────────────── #
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """
+    FastAPI lifespan context:
+     1) wait for the database
+     2) initialize the Redis‑backed rate limiter
+     3) ensure an admin user exists
+    """
     logger.info("⏳ Waiting for the database to be ready...")
     await wait_for_db()
     logger.info("✅ Database is ready!")
@@ -38,34 +42,53 @@ async def lifespan(app: FastAPI):
         logger.warning(f"⚠️ Skipping rate‑limiter init (Redis not available?): {e}")
 
     async with async_session() as db:
-        logger.info("⚙️ Checking admin user...")
+        """
+        On startup, connect to the DB and create the admin user if it doesn’t exist.
+        """
+        logger.info("⚙️ Checking admin user…")
         await create_admin(db)
 
     yield
 
 
-# ────────────────────────────── App Init ────────────────────────────── #
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(
+    title="FastAPI Contacts API",
+    description="An example contacts service with auth, rate‑limits, etc.",
+    lifespan=lifespan,
+)
 
 setup_cors(app)
 
-# ────────────────────────────── Routers ────────────────────────────── #
 app.include_router(auth.router, prefix="/api")
 app.include_router(users.router, prefix="/api")
 app.include_router(contacts.router, prefix="/api")
-
-# ────────────────────────────── Static ────────────────────────────── #
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
+# serve Sphinx HTML docs under /docs-html
+app.mount(
+    "/docs-html",
+    StaticFiles(directory="docs/build/html", html=True),
+    name="docs_html",
+)
 
-# ────────────────────────────── Root ────────────────────────────── #
+
 @app.get("/", tags=["Root"])
 async def root():
+    """
+    Health‑check / root endpoint.
+    ---
+    Returns:
+        dict: { "message": "Welcome to FastAPI application!" }
+    """
     return {"message": "Welcome to FastAPI application!"}
 
 
-# ────────────────────────────── OpenAPI ────────────────────────────── #
 def custom_openapi():
+    """
+    Generate a custom OpenAPI schema that:
+     - Includes OAuth2PasswordBearer globally
+     - Uses our own title, version, description
+    """
     if app.openapi_schema:
         return app.openapi_schema
 
