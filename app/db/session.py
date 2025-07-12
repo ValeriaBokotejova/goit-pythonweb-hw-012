@@ -15,7 +15,7 @@ from app.core.config import settings
 Base = declarative_base()
 
 engine: AsyncEngine = create_async_engine(
-    settings.database_url,
+    settings.async_database_url,
     echo=False,
 )
 

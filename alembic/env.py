@@ -16,6 +16,11 @@ fileConfig(config.config_file_name)
 # Set the database URL from your .env
 config.set_main_option("sqlalchemy.url", settings.database_url)
 
+db_url = settings.database_url
+if db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgres://", "postgresql+asyncpg://", 1)
+    config.set_main_option("sqlalchemy.url", db_url)
+
 # Your models' metadata
 target_metadata = Base.metadata
 
